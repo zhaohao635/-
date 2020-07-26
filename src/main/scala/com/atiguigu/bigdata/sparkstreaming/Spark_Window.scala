@@ -1,0 +1,57 @@
+package com.atiguigu.bigdata.sparkstreaming
+
+import org.apache.spark.SparkConf
+import org.apache.spark.streaming.dstream.{DStream, ReceiverInputDStream}
+import org.apache.spark.streaming.kafka.KafkaUtils
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+
+object Spark_Window {
+  def main(args: Array[String]): Unit = {
+    /**
+     *scala中的窗口
+    val ints = List(1, 2, 3, 4, 5, 6)
+    //滑动窗口函数
+    val intses: Iterator[List[Int]] = ints.sliding(3, 3)
+    for (list<-intses){
+      println(list)
+      println(list.mkString(","))
+    }
+     */
+//    sparkStreaming的窗口
+    //Spark配置对象
+    val sparkConf: SparkConf = new SparkConf().setMaster("local[*]").setAppName("SparkStreamingWordCount")
+//    //实时数据分析环境对象
+    val streamingContext = new StreamingContext(sparkConf, Seconds(3))
+//    //保存数据的状态，需要设定检查点的路径，因为数据是源源不断的，所以要写到本地文件，不能放在内存当中
+//    streamingContext.sparkContext.setCheckpointDir("jianchadianlujing")
+    //从Kafka中采集数据
+    val kafkaDStream: ReceiverInputDStream[(String, String)] = KafkaUtils.createStream(
+      streamingContext,
+      "node1:2181",
+      "atiguigu",
+      Map("atiguigu" -> 3)
+    )
+    //窗口大小应该为采集周期的整数倍，窗口滑动的步长也应该为采集周期的整数倍
+    val windowDStream: DStream[(String, String)] = kafkaDStream.window(Seconds(9), Seconds(3))
+//    //将采集的数据进行分解（扁平化）
+    val wordDStream: DStream[String] = windowDStream.flatMap(t => t._2.split(" "))
+//    //将数据进行结构的转换方便统计分析
+    val mapDStream: DStream[(String, Int)] = wordDStream.map((_, 1))
+    //将转换结构后的数据进行聚合处
+    val wordToSumDStream: DStream[(String, Int)] = mapDStream.reduceByKey(_ + _)
+//    //与之前的差别在于之前使用reduceByKey现在使用updateStateByKey，其他位置就是增加一个检查点路径，剩下的都一样
+//    val stateDStream: DStream[(String, Int)] = mapDStream.updateStateByKey {
+//      case (seq, buffer) => {
+//        val sum = buffer.getOrElse(0) + seq.sum //初始值如果不存在则使用默认值0
+//        Option(sum) //返回值为一个Option
+//      }
+//    }
+    //将结果打印出来
+    wordToSumDStream.print()
+    //自动采集器
+    streamingContext.start()
+    //Driver等待采集器的执行
+    streamingContext.awaitTermination()
+  }
+
+}
